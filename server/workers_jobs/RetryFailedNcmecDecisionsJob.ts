@@ -5,8 +5,11 @@ import { inject } from '../iocContainer/utils.js';
 import {
   buildSubmitReportParamsFromDecision,
   LEGACY_FALLBACK_INCIDENT_TYPE,
+  summarizeNcmecErrorForReviewer,
 } from '../services/ncmecService/index.js';
 import { toCorrelationId } from '../utils/correlationIds.js';
+import { jsonStringify } from '../utils/encoding.js';
+import { logErrorJson } from '../utils/logging.js';
 
 export default inject(
   [
@@ -179,15 +182,25 @@ export default inject(
           // its retry_count.
           return;
         }
+        // Preserve the full detail in logs before we replace it
+        // with the reviewer-friendly summary on the row.
+        // eslint-disable-next-line no-restricted-syntax
+        logErrorJson({
+          error: e,
+          message: jsonStringify({
+            context: 'RetryFailedNcmecDecisionsJob.processDecisionRetry',
+            jobId: row.job_payload.id,
+            orgId,
+            userId: itemId,
+            userTypeId: itemTypeId,
+          }),
+        });
         await ncmecService.insertOrUpdateNcmecReportError({
           jobId: row.job_payload.id,
           userId: itemId,
           userTypeId: itemTypeId,
           status: 'RETRYABLE_ERROR',
-          error:
-            typeof e === 'object' && e !== null && 'message' in e
-              ? (e as Error).message
-              : 'Unknown error',
+          error: summarizeNcmecErrorForReviewer(e),
         });
       }
     };
